@@ -36,8 +36,35 @@ md_filtered <- metadata %>%
                                          . != "" ~ str_split_i(., ":", -1)))) %>%
     
     #change columns that should be numeric to numeric, adds NA's where necessary (will give warning)
-    mutate(across(c(-1:-3), as.numeric))
+    mutate(across(c(-1:-3), as.numeric)) %>%
     
+    #get read of leading space in diagnosis column
+    mutate(diagnosis = trimws(diagnosis)) %>%
+    
+    #change diagnosis column to a factor
+    mutate_at('diagnosis', factor)
+    
+#relevel diagnosis column in md_filtered it so control is reference
+md_filtered$diagnosis <- relevel(md_filtered$diagnosis, ref='Neurologically normal')
+    
+
+#### 13.5.1 OUTPUT TAB 1: SUMMARY TABLE ####
+#Take metadata and generate summary table of it including column name | Type | Mean(sd) or distinct values
+mean_sd_f <- function(df_col) {
+    stringr::str_c(round(mean(df_col, na.rm=TRUE), 2), ' (+/-', round(sd(df_col, na.rm=TRUE), 2), ')')
+}
+
+md_summary <- (summarise_all(md_filtered, class))
+md_summary <- as.data.frame(t(md_summary[,]))
+colnames(md_summary)[1] = 'Type'
+md_summary <- rownames_to_column(md_summary, var = "Column Name")
+
+character_vector <- c('sample name', 'geo_accession', 'Neurologically Normal, Huntington\'s Disease')
+numeric_vector <- md_filtered %>% 
+    summarise(across(where(is.numeric), mean_sd_f))
+summary_stats_vector <- c(character_vector, numeric_vector)
+
+md_summary$`Mean(sd) or Description of Values` <- summary_stats_vector
 
 
 
