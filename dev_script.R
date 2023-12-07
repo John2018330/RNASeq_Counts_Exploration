@@ -3,7 +3,7 @@
 #######################################################################################
 
 
-#### Step 1 ####
+#### 15.3.1 Sample Information Exploration ####
 #' Load in data, data downloaded from NCBI 
 #'    - Use GEOquery (biocManager) package to load in series matrix data
 #'    - Use Tidyverse to load in csv/tsv's
@@ -13,8 +13,10 @@ library(tidyverse)
 #GSE object, structures lots of information about GEO accession/data given to it
 gse=getGEO(filename="data/GSE64810_series_matrix.txt")
 
-#Sample information can be extracted from GSE object and then filtered
+#Sample information can be extracted from GSE object 
 metadata <- gse@phenoData@data
+
+#Filter the metadata to only relevant information and clean it up
 md_filtered <- metadata %>%
     #select the relevant columns 
     dplyr::select(title, geo_accession, dplyr::starts_with('characteristics_ch1.')) %>%
@@ -40,4 +42,3 @@ md_filtered <- metadata %>%
 
 
 #### Questions for Adam ####
-#' 13.5.3 Shiny Functionalities: Tab with content similar to that described in [Assignment 7] ?

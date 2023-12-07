@@ -23,9 +23,16 @@ ui <- fluidPage(
     p(strong("Made by Johnathan Zhang")),
     
     tabsetPanel(
+        
+        #### 13.5.1 Sample Information Exploration 
         tabPanel('Samples', 
                  sidebarLayout(
-                     sidebarPanel('input: Sample information matrix in CSV format'),
+                     ### Upload metadata file
+                     sidebarPanel(
+                         fileInput('sample_info_csv', 
+                                   paste0('Upload file: Sample information matrix in CSV format'))),
+                     
+                     ### Outputs
                      mainPanel(tabsetPanel(
                          tabPanel('Summary', 'summary of table that includes summary of 
                                   type and values in each column'), 
@@ -70,6 +77,26 @@ ui <- fluidPage(
 #### Server side / Back end ####
 server <- function(input, output, session) {
 
+    #' Function to take in csv uploaded in 13.5.1 Sample Information Exploration and return it
+    #' as tibble
+    load_sample_information <- reactive({
+        #Don't run until file has been uploaded
+        req(input$sample_info_csv)
+        
+        #GSE object, structures lots of information about GEO accession/data given to it
+        #gse=getGEO(filename="data/GSE64810_series_matrix.txt")
+        gse=getGEO(filename=input$sample_info_csv$datapath)
+        
+        #Sample information can be extracted from GSE object 
+        metadata <- gse@phenoData@data
+        
+        return (metadata)
+        
+        #req(input$csv)
+        #return(read.csv(file = input$csv$datapath))
+    })
+    
+    
 }
 
 
