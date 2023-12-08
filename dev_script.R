@@ -5,7 +5,7 @@
 library(GEOquery)
 library(tidyverse)
 
-#### 15.3.1 Sample Information Exploration ####
+#### 13.5.1 Sample Information Exploration ####
 #' Load in data, data downloaded from NCBI 
 #'    - Use GEOquery (biocManager) package to load in series matrix data
 #'    - Use Tidyverse to load in csv/tsv's
@@ -100,8 +100,25 @@ md_dens_plot <- ggplot(md_filtered, aes(x=!!sym(var))) +
 
 
 
+#### 13.5.2 Counts Matrix Exploration INPUT
+# input a csv, output a tibble with 2 new columns: percentile variance and num samples that are non zero for the gene
+#dplyr::percent_rank()
+load_normalized_counts <- function(counts_file) {
+    #this needs to be separate because of the full_join in the below pipe
+    norm_counts <- read_tsv(counts_file, show_col_types = FALSE)
+    
+    #pivoting longer and then grouping by the original row is WAAYY faster than doing this rowwise()...
+    #use percent_rank() to generate percentile of a column
+    norm_counts <- norm_counts %>%
+        tidyr::pivot_longer(-GeneID) %>%
+        group_by(GeneID) %>%
+        summarize(var = var(value),
+                  non_zero_count = sum(value != 0)) %>%
+        full_join(y=norm_counts, by=join_by(GeneID)) %>%
+        mutate(var_percentile = percent_rank(var), .after = var)
+        
+    return(norm_counts)
+}
 
-
-
-
+#tpm <- load_normalized_counts('data/GSE64810_norm_counts_TPM.tsv')
 #### Questions for Adam ####
