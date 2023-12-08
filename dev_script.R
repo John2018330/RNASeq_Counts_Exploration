@@ -2,13 +2,13 @@
 #### This script is used to test R code before adding it to the Rshiny application ####
 #######################################################################################
 
+library(GEOquery)
+library(tidyverse)
 
 #### 15.3.1 Sample Information Exploration ####
 #' Load in data, data downloaded from NCBI 
 #'    - Use GEOquery (biocManager) package to load in series matrix data
 #'    - Use Tidyverse to load in csv/tsv's
-library(GEOquery)
-library(tidyverse)
 
 #GSE object, structures lots of information about GEO accession/data given to it
 gse=getGEO(filename="data/GSE64810_series_matrix.txt")
@@ -65,6 +65,42 @@ numeric_vector <- md_filtered %>%
 summary_stats_vector <- c(character_vector, numeric_vector)
 
 md_summary$`Mean(sd) or Description of Values` <- summary_stats_vector
+
+
+#### 13.5.1 OUTPUT TAB 3: DENSITY PLOTS
+# Case when both HD and non-HD data exists
+var <- 'total_reads'
+md_dens_plot <- ggplot(md_filtered, aes(x=!!sym(var), fill=diagnosis)) + 
+    geom_density(alpha=0.5) +
+    theme_classic() +
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+          legend.background = element_rect(fill=alpha('grey', 0.5))) +
+    xlab(str_to_title(gsub('_', ' ', var))) +
+    ylab('Density') + 
+    theme(legend.position="bottom", legend.box = "horizontal") +
+    guides(fill = guide_legend(title.position = 'top', title.hjust = 0.5)) + 
+    scale_fill_discrete(name='Diagnosis') +
+    scale_x_continuous(labels = scales::comma, expand = c(0,0)) +
+    scale_y_continuous(expand=c(0,0))
+    
+# Case when only HD data exists
+var <- 'hv_striatal_score'
+md_dens_plot <- ggplot(md_filtered, aes(x=!!sym(var))) +
+    geom_density(alpha=0.5, fill='#34BFC7') +
+    theme_classic() +
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+    xlab(paste(str_to_title(gsub('_', ' ', var)), 'of Huntington\'s patients/diagnosis')) +
+    ylab('Density') +
+    #scale_fill_discrete(name='Diagnosis') +
+    scale_x_continuous(labels = scales::comma, expand = c(0,0)) +
+    scale_y_continuous(expand=c(0,0))
+
+
+
+
 
 
 

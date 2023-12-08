@@ -58,9 +58,8 @@ ui <- fluidPage(
                                           #style='width:100%; background: #5ECCAB'
                                       ),
                                       mainPanel(
-                                          plotOutput(outputId = "metadata_density_plot") #height='600px'
-                                      )
-                                ))
+                                          plotOutput(outputId = "metadata_density_plot", height='600px') #height='600px' 
+                                      )))
                      ))
                  )),
         
@@ -207,21 +206,52 @@ server <- function(input, output, session) {
     #' 13.5.1 OUTPUT TAB 3
     #' Generate density plot of selected variable from metadata
     
-    density_plot <- function(dataf, var, samples) {
-        #' if samples == HD,
-        #'  drop all rows of DF with NA's 
-        #' 
-        #' make plot
+    md_density_plot <- function(dataf, var) {
+        non_hd_vars <- c('pmi', 'age_of_death', 'rin', 'total_reads')
+        if (var %in% non_hd_vars) {
+            md_filtered <- dataf
+            
+            md_dens_plot <- ggplot(md_filtered, aes(x=!!sym(var), fill=diagnosis)) +
+                geom_density(alpha=0.5) +
+                theme_classic() +
+                theme(axis.text.y = element_blank(),
+                      axis.ticks.y = element_blank(),
+                      legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                      legend.background = element_rect(fill=alpha('grey', 0.5))) +
+                xlab(str_to_title(gsub('_', ' ', var))) +
+                ylab('Density') +
+                theme(legend.position="bottom", legend.box = "horizontal") +
+                guides(fill = guide_legend(title.position = 'top', title.hjust = 0.5)) +
+                scale_fill_discrete(name='Diagnosis') +
+                scale_x_continuous(labels = scales::comma, expand = c(0,0)) +
+                scale_y_continuous(expand=c(0,0))
+            
+        } else {
+            md_filtered <- dataf %>%
+                drop_na(var)
+            
+            md_dens_plot <- ggplot(md_filtered, aes(x=!!sym(var))) +
+                geom_density(alpha=0.5, fill='#34BFC7') +
+                theme_classic() +
+                theme(axis.text.y = element_blank(),
+                      axis.ticks.y = element_blank()) +
+                xlab(paste(str_to_title(gsub('_', ' ', var)), 'of Huntington\'s patients/diagnosis')) +
+                ylab('Density') +
+                scale_x_continuous(labels = scales::comma, expand = c(0,0)) +
+                scale_y_continuous(expand=c(0,0))
+        }
         
+        return (md_dens_plot)
     }
     
     output$metadata_density_plot <- renderPlot ({
         #require plot button to be pushed
-        #if input$metadata_plot_var in c(age_of_death, total_reads, rin)
-        #         samples <- 'ALL'
-        #else
-        #         samples <-'HD'
-        #enter plot function, 
+        input$make_density_plot
+        
+        #generate plot w/n isolate to require action button to be pushed
+        isolate({
+            md_density_plot(load_sample_information(), input$metadata_plot_var)
+        })
     })
     
 }
