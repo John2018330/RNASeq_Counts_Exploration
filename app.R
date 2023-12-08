@@ -43,8 +43,24 @@ ui <- fluidPage(
                                   with sortable columns', 
                                   DTOutput('metadata')),
                          
-                         tabPanel('Plots', 'histograms, density plots, or violin plots 
-                                  of continuous variables')
+                         tabPanel('Plots', 
+                                  sidebarLayout(
+                                      sidebarPanel(
+                                          radioButtons("metadata_plot_var", #ID
+                                                       "Choose a variable to generate a density plot", 
+                                                       c('pmi', 'age_of_death', 'rin', 'total_reads',
+                                                         'age_of_onset', 'duration', 'cag', 
+                                                         'vonsattel_grade', 'hv_striatal_score',
+                                                         'hv_cortical_score'), 
+                                                       selected='pmi'),
+                                          actionButton('make_density_plot', label='Plot', 
+                                                       style='width:100%')
+                                          #style='width:100%; background: #5ECCAB'
+                                      ),
+                                      mainPanel(
+                                          plotOutput(outputId = "metadata_density_plot") #height='600px'
+                                      )
+                                ))
                      ))
                  )),
         
@@ -145,7 +161,7 @@ server <- function(input, output, session) {
     # Main function that takes in metadata tibble and summarizes it
     summarize_metadata <- function() {
         #Don't run until file has been uploaded
-        req(input$sample_info_csv)
+        #req(input$sample_info_csv)
         
         # Load in the metadata
         md_filtered <- load_sample_information()
@@ -175,6 +191,7 @@ server <- function(input, output, session) {
         )
     )
     
+    
     ######################
     #' 13.5.1 OUTPUT TAB 2 
     #' Render the Data Table with sortable columns 
@@ -186,7 +203,26 @@ server <- function(input, output, session) {
     )
     
     
+    ######################
+    #' 13.5.1 OUTPUT TAB 3
+    #' Generate density plot of selected variable from metadata
     
+    density_plot <- function(dataf, var, samples) {
+        #' if samples == HD,
+        #'  drop all rows of DF with NA's 
+        #' 
+        #' make plot
+        
+    }
+    
+    output$metadata_density_plot <- renderPlot ({
+        #require plot button to be pushed
+        #if input$metadata_plot_var in c(age_of_death, total_reads, rin)
+        #         samples <- 'ALL'
+        #else
+        #         samples <-'HD'
+        #enter plot function, 
+    })
     
 }
 
