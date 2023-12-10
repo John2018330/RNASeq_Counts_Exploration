@@ -84,14 +84,20 @@ ui <- fluidPage(
                          
                          ## Slider for number of non-zero counts
                          sliderInput('norm_counts_nonzeroes', min=0, max=69, value = 10, step = 1,
-                                     label = 'Select how many samples must have a non-zero count value')),
+                                     label = 'Select how many samples must have a non-zero count value for the gene')),
                      
                      ### Output tabs: Summary, Plots, Heatmap, and PCA
                      mainPanel(tabsetPanel(
-                         tabPanel('Summary', 'Tab with text or a table summarizing the effect of the
-                                  filtering'),
-                         tabPanel('Plots', 'Tab with diagnostic scatter plots, where genes passing 
-                                  filters are darker, and genes filtered out are lighter'),
+                         tabPanel('Summary', 
+                                  'Tab with a table summarizing the effect of the filtering',
+                                  DTOutput('filtered_norm_counts_table')),
+                         
+                         tabPanel('Scatter Plots', 
+                                  'Tab with diagnostic scatter plots, where genes passing filters are darker, 
+                                  and genes filtered out are lighter',
+                                  plotOutput(outputId = 'counts_scatter_variation', height = '600px', width = '600px'), 
+                                  plotOutput(outputId = 'counts_scatter_nonzeros', height = '600px')),
+                         
                          tabPanel('Heatmap', 'Tab with a clustered heatmap of counts remaining after
                                   filtering'),
                          tabPanel('PCA', 'Tab with a scatter plot of principal component analysis
@@ -118,10 +124,11 @@ ui <- fluidPage(
 #### Server side / Back end ####
 server <- function(input, output, session) {
 
-    ########################################
+    #######################################################################
     #' 13.5.1 SAMPLE INFO EXPLORE INPUT FILE
-    #' Function to take in file uploaded in Sample Information Exploration, data wrangle it
-    #' and return it as tibble
+    #' Function to take in file uploaded in Sample Information Exploration, 
+    #' data wrangle it and return it as tibble
+    
     load_sample_information <- reactive({
         # Don't run until file has been uploaded
         req(input$sample_info_csv)
@@ -169,7 +176,7 @@ server <- function(input, output, session) {
         return (md_filtered)
     })
     
-    ##########################################
+    #######################################################
     #' 13.5.1 SAMPLE INFO EXPLORE OUTPUT TAB 1 
     #' Render Data Table summary information about metadata
     
@@ -212,9 +219,10 @@ server <- function(input, output, session) {
     )
     
     
-    ##########################################
+    ##############################################
     #' 13.5.1 SAMPLE INFO EXPLORE OUTPUT TAB 2 
     #' Render the Data Table with sortable columns 
+    
     output$metadata <- renderDT(
         load_sample_information(), options = list(
             pageLength = 50, # Default number of rows to show
@@ -223,7 +231,7 @@ server <- function(input, output, session) {
     )
     
     
-    ##########################################
+    ###########################################################
     #' 13.5.1 SAMPLE INFO EXPLORE OUTPUT TAB 3
     #' Generate density plot of selected variable from metadata
     
@@ -281,15 +289,16 @@ server <- function(input, output, session) {
     })
     
     
-    #######################################
-    #' 13.5.2 NORM COUNTS EXPLORE INPUT CSV
+    #####################################################################################################
+    #' 13.5.2 NORM COUNTS INPUT CSV
     #' Input a raw CSV and add columns that will be used for filtering/plotting and return it as a tibble
     #' - percentile variance: a percentile rank of how much variance a gene has 
     #' - non_zero_count:      a count of how many genes had non-zero counts
     
-    load_normalized_counts <- function(counts_file) {
+    load_normalized_counts <- reactive({
         # Don't run until file has been uploaded
         req(input$norm_counts_csv)
+        counts_file <- input$norm_counts_csv$datapath
         
         # This needs to be separate because of the full_join in the below pipe
         norm_counts <- read_tsv(counts_file, show_col_types = FALSE)
@@ -302,10 +311,147 @@ server <- function(input, output, session) {
             summarize(var = var(value),
                       non_zero_count = sum(value != 0)) %>%
             full_join(y=norm_counts, by=join_by(GeneID)) %>%
-            mutate(var_percentile = percent_rank(var), .after = var)
+            mutate(var_percentile = (100 * percent_rank(var)), .after = var)
         
         return(norm_counts)
+    })
+    
+    
+    #############################################################################################
+    #' 13.5.2 NORM COUNTS OUTPUT 1 FILTER SUMMARIZATION
+    #' Generate a table summarizing the effect of the filtering the normalized counts, including:
+    #' number of samples, 
+    #' total number of genes, 
+    #' number and % of genes passing current filter, 
+    #' number and % of genes not passing current filter
+    
+    #First make a function to filter raw normalized counts by variation percentile and number of non-zero count genes
+    filter_norm_counts <- function(norm_counts, percentile, min_non_zeroes) {
+        filtered <- norm_counts %>%
+            filter(var_percentile >= percentile & non_zero_count >= min_non_zeroes)
+        return (filtered)
     }
+
+    
+    # Function to first filter the raw normalized counts by variation percentile and number of non-zero count genes,
+    # then summarize the effects of filtering
+    summarize_filtered_norm_counts <- function(norm_counts, percentile, min_non_zeroes) {
+        # Generate filtered dataset
+        filtered_norm_counts <- filter_norm_counts(norm_counts, percentile, min_non_zeroes)
+        
+        # Original dimensions of the dataset
+        num_samples <- dim(norm_counts)[2]
+        num_genes   <- dim(norm_counts)[1]
+        
+        # Numbers based on filtered dataset
+        num_filtered_genes         <- dim(filtered_norm_counts)[1]
+        num_filtered_out_genes     <- num_genes - num_filtered_genes
+        percent_filtered_genes     <- round((100 * num_filtered_genes / num_genes), 2)
+        percent_filtered_out_genes <- 100 - percent_filtered_genes
+        
+        # Write filtered gene stats as 'Number (Percent%)'
+        filtered_stat     <- paste(num_filtered_genes, '(', percent_filtered_genes, '%)', sep='')
+        filtered_out_stat <- paste(num_filtered_out_genes, '(', percent_filtered_out_genes, '%)', sep='')
+        
+        # Generate columns of summary table
+        criteria <- c('Number of samples', 'Total number of genes', 
+                      'Number (%) of genes passing current filter', 'Number (%) of genes filtered out')
+        summary  <- c(num_samples, num_genes, filtered_stat, filtered_out_stat)
+        
+        # Combine columns into a dataframe
+        summary_table <- data.frame(criteria, summary)
+        names(summary_table) <- c('Stat', 'Value')
+        
+        return (summary_table)
+    }
+    
+    
+    # Render the data table
+    output$filtered_norm_counts_table <- renderDT(
+            summarize_filtered_norm_counts(load_normalized_counts(), 
+                                           input$norm_counts_percentile_var, 
+                                           input$norm_counts_nonzeroes), 
+            options = list(dom = 't')
+    )
+    
+    #################################################
+    #' 13.5.2 NORM COUNTS OUTPUT 2 SCATTER PLOTS
+    #' Generate scatter plots of median count vs 
+    #'  (1) variance and 
+    #'  (2) number of zeroes
+    #'  w/ filtering/coloring based on input sliders 
+    
+    #### Function to generate scatter plot of median count vs variance
+    filtered_norm_counts_variance_scatter <- function(norm_counts, percentile_filter) {
+        # Make copy of original tibble w/ 0 variance filtered out
+        norm_counts_wVariance <- norm_counts %>%
+            filter(var != 0)
+        
+        # Take tibble and wrangle to add necessary columns
+        variance_tibble <- norm_counts_wVariance %>%
+            
+            # Again perform get row-wise median count without using rowwise() because it's super slow
+            tidyr::pivot_longer(cols = starts_with('GSM')) %>%
+            group_by(GeneID) %>%
+            summarize(median_count = median(value)) %>%
+            full_join(y=norm_counts_wVariance, by=join_by(GeneID)) %>%
+            
+            # Ease for troubleshooting
+            select(!starts_with('GSM')) %>% 
+            
+            # SUSPECT LINE!! Some genes have VERY HIGH variance but a 0 *MEDIAN* count; check out gene 28476
+            filter(median_count != 0) %>%
+            
+            # Rank median (since it's also pretty skewed) and add column to color points by whether they pass the filtering threshold
+            mutate(rank_median = min_rank(median_count),
+                   .after = median_count) %>%
+            mutate(variance_filter_status = case_when(var_percentile >= percentile_filter ~ 'TRUE', 
+                                                      .default = 'FALSE'),
+                   .after = var_percentile)
+        
+        # Color vector for plot
+        color_map <- c('TRUE' = '#FFC107', 'FALSE' = '#004D40')
+        
+        # Make scatter plot with y axis log scale
+        variance_scatter <- variance_tibble %>%
+            ggplot(aes(x=rank_median, y=var, color=variance_filter_status)) +
+            geom_point() + 
+            theme_classic() +     
+            xlab('Median (ranked)') +
+            ylab('Variance on a Log10 Scale') + 
+            ggtitle('Ranked median vs Variance on a Log10 Scale') + 
+            
+            # Change axis tick labels and scales
+            scale_x_continuous(labels = scales::comma) +
+            scale_y_continuous(trans = scales::log_trans(10), labels=scales::label_log(10)) + 
+            
+            # Legend and color and general text editing
+            theme(plot.title = element_text(size=20, face='bold'), 
+                  axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+                  legend.title = element_text(size=14), legend.text = element_text(size=14),
+                  legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                  legend.background = element_rect(fill=alpha('grey', 0.5))) +
+            theme(legend.position="bottom", legend.box = "horizontal") +
+            guides(color = guide_legend(title = paste('Percentile Variance > ', percentile_filter, '%', sep=''), 
+                                        title.position = 'top', title.hjust = 0.5)) + 
+            scale_color_manual(values=color_map)
+        
+        return (variance_scatter)
+    }
+    
+    
+    
+    # Render filtered normalized counts variation scatter plot
+    output$counts_scatter_variation <- renderPlot({
+        
+        # Require csv to be uploaded first
+        input$norm_counts_csv
+        
+        # Generate plot to render
+        filtered_norm_counts_variance_scatter(load_normalized_counts(),
+                                              input$norm_counts_percentile_var)
+    })
+    
     
 }
 
