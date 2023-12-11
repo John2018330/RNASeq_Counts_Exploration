@@ -15,6 +15,8 @@ library(tidyverse)
 library(colourpicker)
 library(GEOquery)
 library(DT)
+library(gplots)
+library(DESeq2)
 
 options(shiny.maxRequestSize=30*1024^2)
 
@@ -27,7 +29,7 @@ ui <- fluidPage(
     
     tabsetPanel(
         
-        #### 13.5.1 Sample Information Exploration 
+        #### 13.5.1 Sample Information Exploration ####
         tabPanel('Samples', 
                  sidebarLayout(
                      ### Upload metadata file
@@ -68,7 +70,7 @@ ui <- fluidPage(
                      ))
                  )),
         
-        #### 13.5.2 Normalized Counts Matrix Exploration
+        #### 13.5.2 Normalized Counts Matrix Exploration ####
         tabPanel('Counts Exploration', 
                  sidebarLayout(
                      ### Upload norm_counts_csv and filter sliders
@@ -78,12 +80,12 @@ ui <- fluidPage(
                                    paste0('Normalized counts matrix, in CSV format, input sliders 1 and 2')),
                          
                          ## Slider for variance percentile (0-100%)
-                         sliderInput("norm_counts_percentile_var", min = 0, max = 100, value = 90,  step = 0.5,
+                         sliderInput("norm_counts_percentile_var", min = 0, max = 100, value = 99,  step = 0.1,
                                      label = "Select the percentile of genes to include based on variance across samples 
                                      (e.g., 90% means select genes with the top 10% variance values)"),
                          
                          ## Slider for number of non-zero counts
-                         sliderInput('norm_counts_nonzeroes', min=0, max=69, value = 10, step = 1,
+                         sliderInput('norm_counts_nonzeroes', min=0, max=69, value = 60, step = 1,
                                      label = 'Select how many samples must have a non-zero count value for the gene')),
                      
                      ### Output tabs: Summary, Plots, Heatmap, and PCA
@@ -95,13 +97,35 @@ ui <- fluidPage(
                          tabPanel('Scatter Plots', 
                                   'Tab with diagnostic scatter plots, where genes passing filters are darker, 
                                   and genes filtered out are lighter',
-                                  plotOutput(outputId = 'counts_scatter_variation', height = '600px', width = '600px'), 
-                                  plotOutput(outputId = 'counts_scatter_nonzeros', height = '600px')),
+                                  fluidRow(splitLayout(
+                                      cellWidths = c('50%', '50%'), 
+                                      plotOutput(outputId = 'counts_scatter_variation', height = '500px'),
+                                      plotOutput(outputId = 'counts_scatter_nonzeros', height = '500px')),
+                                  )),
                          
-                         tabPanel('Heatmap', 'Tab with a clustered heatmap of counts remaining after
-                                  filtering'),
-                         tabPanel('PCA', 'Tab with a scatter plot of principal component analysis
-                                  projections')
+                         tabPanel('Heatmap', 
+                                  h3('Heatmap of filtered counts log10-transformed'),
+                                  plotOutput(outputId = 'counts_heatmap', height='600px')),
+                         
+                         tabPanel('PCA', 
+                                  sidebarLayout(
+                                      sidebarPanel(
+                                          radioButtons("pca_x", #ID
+                                                       "Choose a Principal Component to plot on the x axis", 
+                                                       c('PC1', 'PC2', 'PC3', 'PC4', 'PC5'), 
+                                                       selected = 'PC1'),
+                                          radioButtons('pca_y',
+                                                       'Choose a Principal Component to plot on the y axis',
+                                                       c('PC1', 'PC2', 'PC3', 'PC4', 'PC5'), 
+                                                       selected = 'PC2'),
+                                          actionButton('plot_pca', label='Plot', 
+                                                       style='width:100%')),
+                                      
+                                       mainPanel('Tab with PCA plot of select principal components on entire dataset 
+                                                 minus zero-variance genes. Please upload BOTH metadata/sample_info 
+                                                 file (tab 1) and normalized counts',
+                                                 plotOutput(outputId = 'counts_pca', height='600px'))
+                            ))
                      ))
                  )),
         
@@ -146,7 +170,7 @@ server <- function(input, output, session) {
             dplyr::select(title, geo_accession, dplyr::starts_with('characteristics_ch1.')) %>%
             
             # Rename column names from generic to specific
-            rename(diagnosis         = characteristics_ch1.1, pmi               = characteristics_ch1.2,
+            dplyr::rename(diagnosis         = characteristics_ch1.1, pmi               = characteristics_ch1.2,
                    age_of_death      = characteristics_ch1.3, rin               = characteristics_ch1.4,
                    total_reads       = characteristics_ch1.5, age_of_onset      = characteristics_ch1.6,
                    duration          = characteristics_ch1.7, cag               = characteristics_ch1.8,
@@ -157,18 +181,18 @@ server <- function(input, output, session) {
             # to "characteristic_value".
             # Case_when to ignore the empty values in non Huntingtons patients 
             # rows for huntington's specific columns
-            mutate(across(c(-1, -2), ~ case_when(. == "" ~ .,
+            dplyr::mutate(across(c(-1, -2), ~ case_when(. == "" ~ .,
                                                  . != "" ~ str_split_i(., ":", -1)))) %>%
             
             # Change columns that should be numeric to numeric, adds NA's where 
             # necessary (will give warning)
-            mutate(across(c(-1:-3), as.numeric)) %>%
+            dplyr::mutate(across(c(-1:-3), as.numeric)) %>%
         
             # Get read of leading space in diagnosis column
-            mutate(diagnosis = trimws(diagnosis)) %>%
+            dplyr::mutate(diagnosis = trimws(diagnosis)) %>%
             
             # Change diagnosis column to a factor
-            mutate_at('diagnosis', factor)
+            dplyr::mutate_at('diagnosis', factor)
         
         # Relevel diagnosis column in md_filtered it so control is reference
         md_filtered$diagnosis <- relevel(md_filtered$diagnosis, ref='Neurologically normal')
@@ -328,7 +352,7 @@ server <- function(input, output, session) {
     #First make a function to filter raw normalized counts by variation percentile and number of non-zero count genes
     filter_norm_counts <- function(norm_counts, percentile, min_non_zeroes) {
         filtered <- norm_counts %>%
-            filter(var_percentile >= percentile & non_zero_count >= min_non_zeroes)
+            dplyr::filter(var_percentile >= percentile & non_zero_count >= min_non_zeroes)
         return (filtered)
     }
 
@@ -340,7 +364,7 @@ server <- function(input, output, session) {
         filtered_norm_counts <- filter_norm_counts(norm_counts, percentile, min_non_zeroes)
         
         # Original dimensions of the dataset
-        num_samples <- dim(norm_counts)[2]
+        num_samples <- sum(startsWith(colnames(norm_counts), 'GSM'))
         num_genes   <- dim(norm_counts)[1]
         
         # Numbers based on filtered dataset
@@ -385,7 +409,7 @@ server <- function(input, output, session) {
     filtered_norm_counts_variance_scatter <- function(norm_counts, percentile_filter) {
         # Make copy of original tibble w/ 0 variance filtered out
         norm_counts_wVariance <- norm_counts %>%
-            filter(var != 0)
+            dplyr::filter(var != 0)
         
         # Take tibble and wrangle to add necessary columns
         variance_tibble <- norm_counts_wVariance %>%
@@ -400,7 +424,7 @@ server <- function(input, output, session) {
             select(!starts_with('GSM')) %>% 
             
             # SUSPECT LINE!! Some genes have VERY HIGH variance but a 0 *MEDIAN* count; check out gene 28476
-            filter(median_count != 0) %>%
+            dplyr::filter(median_count != 0) %>%
             
             # Rank median (since it's also pretty skewed) and add column to color points by whether they pass the filtering threshold
             mutate(rank_median = min_rank(median_count),
@@ -440,6 +464,60 @@ server <- function(input, output, session) {
     }
     
     
+    #### Function to generate scatter plot of median count vs zero counts for a gene
+    filtered_norm_counts_zero_scatter <- function(norm_counts, zero_filter) {
+        # Used to inverse the non-zero count
+        num_samples <- sum(startsWith(colnames(norm_counts), 'GSM'))
+        
+        # Add columns to tibble with required information for scatter plot
+        zero_tibble <- norm_counts %>%
+            
+            # Again perform get row-wise median count without using rowwise() because it's super slow
+            tidyr::pivot_longer(cols = starts_with('GSM')) %>%
+            group_by(GeneID) %>%
+            summarize(median_count = median(value)) %>%
+            full_join(y=norm_counts, by=join_by(GeneID)) %>%
+            
+            # Plotting number of zeroes, not non-zeroes so inverse the count and add it as a column
+            mutate(zero_count = num_samples - non_zero_count, .after = non_zero_count) %>%
+            select(!starts_with('GSM')) %>%
+            
+            # Add status column for plotting if passes filter threshold and rank median count
+            mutate(rank_median = dense_rank(median_count),
+                   .after = median_count) %>%
+            mutate(zero_filter_status = case_when(non_zero_count >= zero_filter ~ 'TRUE', 
+                                                  .default = 'FALSE'),
+                   .after = zero_count)
+        
+        # Color vector for plot
+        color_map <- c('TRUE' = '#FFC107', 'FALSE' = '#004D40')
+        
+        # Make scatter plot
+        zero_scatter <- zero_tibble %>%
+            ggplot(aes(x=rank_median, y=zero_count, color=zero_filter_status)) +
+            geom_point() + 
+            theme_classic() +     
+            xlab('Median Count (ranked)') +
+            ylab('Zero Count') +
+            ggtitle('Ranked median vs. # of zero counts for a gene') +
+            
+            # Change axis tick labels and scales
+            scale_x_continuous(labels = scales::comma) +
+            
+            # Legend and color editing
+            theme(plot.title = element_text(size=20, face='bold'), 
+                  axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+                  legend.title = element_text(size=14), legend.text = element_text(size=14),
+                  legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                  legend.background = element_rect(fill=alpha('grey', 0.5)),
+                  legend.position = "bottom", legend.box = "horizontal") +
+            guides(color = guide_legend(title = paste('At least ', zero_filter, ' samples have non-zero counts', sep=''),
+                                        title.position = 'top', title.hjust = 0.5)) +
+            scale_color_manual(values = color_map)
+        
+        return (zero_scatter)
+    }
+    
     
     # Render filtered normalized counts variation scatter plot
     output$counts_scatter_variation <- renderPlot({
@@ -452,7 +530,135 @@ server <- function(input, output, session) {
                                               input$norm_counts_percentile_var)
     })
     
+    # Render filtered normalized counts zero-count scatter plot
+    output$counts_scatter_nonzeros <- renderPlot({
+        
+        # Require csv to be uploaded first
+        input$norm_counts_csv
+        
+        # Generate plot
+        filtered_norm_counts_zero_scatter(load_normalized_counts(),
+                                          input$norm_counts_nonzeroes)
+    })
     
+    
+    ###################################################################
+    #' 13.5.2 NORM COUNTS OUTPUT 3 HEATMAP
+    #' Tab with a clustered heatmap of counts remaining after filtering
+    #' Consider enabling log-transforming counts for visualization
+    
+    # Function to generate heatmap from filtered counts data, 
+    # but I feel heatmap's don't really make sense in this context
+    plot_heatmap <- function(filtered_counts) {
+        
+        # Make counts tibble log transofmred and drop introduced NA's/Infinites
+        filtered_matrix <- filtered_counts %>% 
+            dplyr::select(dplyr::starts_with('GSM')) #%>%
+            #mutate_all(log10) %>%
+            #tidyr::drop_na() %>%
+            #dplyr::filter_all(dplyr::all_vars(is.finite(.)))
+        
+        # Make heatmap plot
+        hm <- heatmap.2(t(filtered_matrix), trace='none', Colv = FALSE, 
+                        dendrogram = 'row', scale='column', na.rm=TRUE)
+        
+        return (hm)
+    }
+    
+    # Render the heatmap
+    output$counts_heatmap <- renderPlot ({
+        
+        # Require csv to be uploaded first
+        input$norm_counts_csv
+        
+        filtered_counts <- (filter_norm_counts(load_normalized_counts(), 
+                                               input$norm_counts_percentile_var, 
+                                               input$norm_counts_nonzeroes))
+        
+        plot_heatmap(filtered_counts)
+    })
+    
+    
+    ###########################################
+    #' 13.5.2 NORM COUNTS OUTPUT 4 PCA
+    #' Make a PCA plot of the normalized counts 
+    #' Incorporate % Variance explained
+    
+    # Function to make PCA scatter plot
+    make_pca_plot <- function(filtered_metadata, pcx, pcy) {
+
+        # Manual load complete dataset for PCA, remove zero variance genes
+        intensity <- read.csv(input$norm_counts_csv$datapath, sep='\t')
+        intensity <- intensity[-c(1)]
+        nonzero_rowvector <- rowVars(as.matrix(intensity[-1]))!=0 
+        intensity <- intensity[nonzero_rowvector,]
+        
+        # Run PCA
+        pca_results <- prcomp(scale(t(intensity)), center=FALSE, scale=FALSE)
+        
+        # Select metadata
+        md_for_pca <- filtered_metadata %>%
+            dplyr::select('geo_accession', 'diagnosis')
+        
+        # Make tibble with diagnosis
+        pca_tibble <- as_tibble(pca_results$x, rownames=NA) %>%
+            rownames_to_column('geo_accession') %>%
+            left_join(y=md_for_pca, by=('geo_accession' = 'geo_accession')) %>%
+            relocate(diagnosis, .after=geo_accession)
+        
+        # Get variance values for plot
+        var <- pca_results$sdev**2
+        prop_of_var <- (var/sum(var))
+        prop_of_var <- signif(prop_of_var, digits=2) * 100
+        
+        # Color map for plot
+        color_map <- c('Huntington\'s Disease' = '#FFC107', 'Neurologically normal' = '#004D40')
+        
+        # PC number and variance explained as a variable
+        pc_x_num <- str_sub(pcx, -1)
+        pc_y_num <- str_sub(pcy, -1)
+        pc_x_var <- prop_of_var[as.numeric(pc_x_num)]
+        pc_y_var <- prop_of_var[as.numeric(pc_y_num)]
+        
+        # Construct plot
+        plot <- ggplot(pca_tibble, aes(x=!!sym(pcx), y=!!sym(pcy), color = diagnosis)) +
+            # Labels and themes
+            geom_point(size=3) +
+            theme_classic() +
+            ggtitle('PCA of Count Data') +
+            xlab(str_c(pcx, ': ', pc_x_var, '% variance')) +
+            ylab(str_c(pcy, ': ', pc_y_var, '% variance')) +
+            
+            # Legend and font and colors
+            theme(plot.title = element_text(size=20, face='bold'), 
+                  axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+                  legend.title = element_text(size=14), legend.text = element_text(size=14),
+                  legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                  legend.background = element_rect(fill=alpha('grey', 0.5)),
+                  legend.position = "bottom", legend.box = "horizontal") +
+            guides(color = guide_legend(title = 'Diagnosis',
+                                        title.position = 'top', title.hjust = 0.5)) +
+            scale_color_manual(values = color_map)
+        
+        return(plot)
+    }
+    
+    
+    output$counts_pca <- renderPlot({
+        # Don't run until both metadata and counts file has been uploaded
+        req(input$norm_counts_csv)
+        req(input$sample_info_csv)
+        
+        # Make plot update on pushing action button
+        input$plot_pca
+        
+        # Run PCA plot and feed in metadata
+        isolate ({
+            make_pca_plot(load_sample_information(), input$pca_x, input$pca_y)
+        })
+    })
+    
+
 }
 
 

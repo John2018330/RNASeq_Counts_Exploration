@@ -4,6 +4,8 @@
 
 library(GEOquery)
 library(tidyverse)
+library(gplots)
+library(DESeq2)
 
 #### 13.5.1 Sample Information Exploration ####
 #' Load in data, data downloaded from NCBI 
@@ -22,7 +24,7 @@ md_filtered <- metadata %>%
     dplyr::select(title, geo_accession, dplyr::starts_with('characteristics_ch1.')) %>%
     
     #rename column names from generic to specific
-    rename(diagnosis         = characteristics_ch1.1, pmi               = characteristics_ch1.2,
+    dplyr::rename(diagnosis         = characteristics_ch1.1, pmi               = characteristics_ch1.2,
            age_of_death      = characteristics_ch1.3, rin               = characteristics_ch1.4,
            total_reads       = characteristics_ch1.5, age_of_onset      = characteristics_ch1.6,
            duration          = characteristics_ch1.7, cag               = characteristics_ch1.8,
@@ -126,11 +128,11 @@ load_normalized_counts <- function(counts_file) {
 #### 13.5.2 Norm Counts Filter Summary
 filter_norm_counts <- function(norm_counts, percentile, min_non_zeroes) {
     filtered <- norm_counts %>%
-        filter(var_percentile >= percentile & non_zero_count >= min_non_zeroes)
+        dplyr::filter(var_percentile >= percentile & non_zero_count >= min_non_zeroes)
     return (filtered)
 }
 
-#test_filter <- filter_norm_counts(tpm, 0.95, 40)
+#filtered_counts <- filter_norm_counts(tpm, 95, 60)
 
 
 #### 13.5.2 Norm Counts OUTPUT 2 Scatter plots w/ filter
@@ -167,24 +169,27 @@ filtered_norm_counts_variance_scatter <- function(norm_counts, percentile_filter
     
     # Make scatter plot with y axis log scale
     variance_scatter <- variance_tibble %>%
-        ggplot(aes(x=rank_median, y=var, color=variance_filter_status)) +
+            ggplot(aes(x=rank_median, y=var, color=variance_filter_status)) +
             geom_point() + 
             theme_classic() +     
             xlab('Median (ranked)') +
-            ylab('Variance on a Log10 Scale') +     
-        
+            ylab('Variance on a Log10 Scale') + 
+            ggtitle('Ranked median vs Variance on a Log10 Scale') + 
+            
             # Change axis tick labels and scales
             scale_x_continuous(labels = scales::comma) +
             scale_y_continuous(trans = scales::log_trans(10), labels=scales::label_log(10)) + 
             
-            # Legend and color editing
-            theme(legend.box.background = element_rect(color = 'black', linewidth = 0.8),
-                  legend.background = element_rect(fill = alpha('grey', 0.5))) +
-            theme(legend.position = "bottom", legend.box = "horizontal") +
+            # Legend and color and general text editing
+            theme(plot.title = element_text(size=20, face='bold'), 
+                  axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+                  legend.title = element_text(size=14), legend.text = element_text(size=14),
+                  legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                  legend.background = element_rect(fill=alpha('grey', 0.5)), 
+                  legend.position="bottom", legend.box = "horizontal") +
             guides(color = guide_legend(title = paste('Percentile Variance > ', percentile_filter, '%', sep=''), 
                                         title.position = 'top', title.hjust = 0.5)) + 
-            #scale_color_discrete(name = paste('Percentile Variance > ', percentile_filter, '%', sep='')) + 
-            scale_color_manual(values = color_map)
+            scale_color_manual(values=color_map)
     
     return (variance_scatter)
 }
@@ -192,4 +197,140 @@ filtered_norm_counts_variance_scatter <- function(norm_counts, percentile_filter
 #filtered_norm_counts_variance_scatter(tpm, 99.9)
 #test_scatter <- filtered_norm_counts_variance_scatter(tpm, 99.9)
 
-#### Questions for Adam ####
+
+# NONZERO FILTER
+filtered_norm_counts_zero_scatter <- function(norm_counts, zero_filter) {
+    # Used to inverse the non-zero count
+    num_samples <- sum(startsWith(colnames(norm_counts), 'GSM'))
+    
+    # Add columns to tibble with required information for scatter plot
+    zero_tibble <- norm_counts %>%
+        
+        # Again perform get row-wise median count without using rowwise() because it's super slow
+        tidyr::pivot_longer(cols = starts_with('GSM')) %>%
+        group_by(GeneID) %>%
+        summarize(median_count = median(value)) %>%
+        full_join(y=norm_counts, by=join_by(GeneID)) %>%
+        
+        # Plotting number of zeroes, not non-zeroes so inverse the count and add it as a column
+        mutate(zero_count = num_samples - non_zero_count, .after = non_zero_count) %>%
+        select(!starts_with('GSM')) %>%
+    
+        # Add status column for plotting if passes filter threshold and rank median count
+        mutate(rank_median = dense_rank(median_count),
+               .after = median_count) %>%
+        mutate(zero_filter_status = case_when(non_zero_count >= zero_filter ~ 'TRUE', 
+                                              .default = 'FALSE'),
+           .after = zero_count)
+    
+    
+    # Color vector for plot
+    color_map <- c('TRUE' = '#FFC107', 'FALSE' = '#004D40')
+    
+    # Make scatter plot
+    zero_scatter <- zero_tibble %>%
+        ggplot(aes(x=rank_median, y=zero_count, color=zero_filter_status)) +
+            geom_point() + 
+            theme_classic() +     
+            xlab('Median Count (ranked)') +
+            ylab('Zero Count') +
+            ggtitle('Ranked median vs. # of zero counts for a gene') +
+            
+            # Change axis tick labels and scales
+            scale_x_continuous(labels = scales::comma) +
+
+            # Legend and color editing
+            theme(plot.title = element_text(size=20, face='bold'), 
+                axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+                legend.title = element_text(size=14), legend.text = element_text(size=14),
+                legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                legend.background = element_rect(fill=alpha('grey', 0.5)),
+                legend.position = "bottom", legend.box = "horizontal") +
+            guides(color = guide_legend(title = paste('At least ', zero_filter, ' samples have non-zero counts', sep=''),
+                                        title.position = 'top', title.hjust = 0.5)) +
+            scale_color_manual(values = color_map)
+    
+    return (zero_scatter)
+    
+}
+
+#filtered_norm_counts_zero_scatter(tpm, 60)
+#test_zero_scatter <- filtered_norm_counts_zero_scatter(tpm, 60)
+
+
+#### 13.5.2 Norm Counts OUTPUT 3 Heatmap
+filtered_counts <- filter_norm_counts(tpm, 95, 60)
+
+plot_heatmap <- function(filtered_counts) {
+    
+    filtered_matrix <- filtered_counts %>% 
+        dplyr::select(dplyr::starts_with('GSM'))# %>%
+        #mutate_all(log10) %>%
+        #tidyr::drop_na() %>%
+        #dplyr::filter_all(dplyr::all_vars(is.finite(.)))
+    
+    hm <- heatmap.2(t(filtered_matrix), trace='none', Colv = FALSE, 
+                    dendrogram = 'row', scale='column', na.rm=TRUE)
+    
+    return (hm)
+}
+
+heatmap <- plot_heatmap(filtered_counts)
+
+
+
+#### 13.5.2 PCA 
+make_pca_plot <- function(filtered_metadata) {
+    # Manual load complete dataset for PCA, remove zero variance genes
+    intensity <- read.csv('data/GSE64810_norm_counts_TPM.tsv', sep='\t')
+    intensity <- intensity[-c(1)]
+    nonzero_rowvector <- rowVars(as.matrix(intensity[-1]))!=0 
+    intensity <- intensity[nonzero_rowvector,]
+    
+    # Run PCA
+    pca_results <- prcomp(scale(t(intensity)), center=FALSE, scale=FALSE)
+    
+    # Select metadata
+    md_for_pca <- filtered_metadata %>%
+        dplyr::select('geo_accession', 'diagnosis')
+    
+    # Make tibble with diagnosis
+    pca_tibble <- as_tibble(pca_results$x, rownames=NA) %>%
+        rownames_to_column('geo_accession') %>%
+        left_join(y=md_for_pca, by=('geo_accession' = 'geo_accession')) %>%
+        relocate(diagnosis, .after=geo_accession)
+    
+    # Get variance values for plot
+    var <- pca_results$sdev**2
+    prop_of_var <- (var/sum(var))
+    prop_of_var <- signif(prop_of_var, digits=2) * 100
+    
+    # Color map for plot
+    color_map <- c('Huntington\'s Disease' = '#FFC107', 'Neurologically normal' = '#004D40')
+    
+    # Construct plot
+    plot <- ggplot(pca_tibble, aes(x=PC1,y=PC2, color = diagnosis)) +
+        # Labels and themes
+        geom_point(size=4) +
+        theme_classic() +
+        ggtitle('PCA of Count Data') +
+        xlab(str_c('PC1: ', prop_of_var[1], '% variance')) +
+        ylab(str_c('PC2: ', prop_of_var[2], '% variance')) +
+        
+        # Legend and font and colors
+        theme(plot.title = element_text(size=20, face='bold'), 
+              axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+              legend.title = element_text(size=14), legend.text = element_text(size=14),
+              legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+              legend.background = element_rect(fill=alpha('grey', 0.5)),
+              legend.position = "bottom", legend.box = "horizontal") +
+        guides(color = guide_legend(title = 'Diagnosis',
+                                    title.position = 'top', title.hjust = 0.5)) +
+        scale_color_manual(values = color_map)
+    
+    return(plot)
+    
+}
+make_pca_plot(md_filtered)
+#pca_plot <- make_pca_plot(md_filtered)
+
