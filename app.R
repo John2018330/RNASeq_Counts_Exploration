@@ -129,16 +129,57 @@ ui <- fluidPage(
                      ))
                  )),
         
+        #### 13.5.3 Differential Expression ####
         tabPanel('Differential Expression', 
                  sidebarLayout(
-                     sidebarPanel('Results of a differential expression analysis in CSV format.'),
+                     ## Upload the DESeq2 results
+                     sidebarPanel(
+                         fileInput('deseq_csv', 
+                                   paste0('Upload results of a differential expression analysis in CSV format'))
+                     ),
+                     
                      mainPanel(tabsetPanel(
-                         tabPanel('Table', 'Tab with sortable table displaying differential expression
-                                  results'),
-                         tabPanel('unknown', 'Tab with content similar to that described in [Assignment
-                                  7]')
-                     ))
+                         tabPanel('Table', 
+                                  'Tab with sortable table displaying differential expression results',
+                                  DTOutput('deseq_table')),
+                         
+                         tabPanel('Volcano Plot', 
+                                  sidebarLayout(
+                                      sidebarPanel(
+                                          HTML(paste("A volcano plot can be generated with", "<b>", "\"log2 fold-change\"", 
+                                                     "</b>", "on the x-axis and", "<b>", "\"p-adjusted\"", "</b>", 
+                                                     "on the y-axis.", "<br/><br/>")),
+                                          
+                                          radioButtons("volcano_x", "Choose the column for the x-axis", 
+                                                       c('baseMean', 'HD.mean', 'Control.mean', 'log2FoldChange', 
+                                                         'lfcSE', 'stat', 'pvalue', 'padj'), 
+                                                       selected='log2FoldChange'),
+                                          radioButtons("volcano_y", "Choose the column for the y-axis", 
+                                                       c('baseMean', 'HD.mean', 'Control.mean', 'log2FoldChange', 
+                                                         'lfcSE', 'stat', 'pvalue', 'padj'),
+                                                       selected='padj'),
+                                          
+                                          colourInput("volcano_base_color", "Base Point color", "#004D40"),
+                                          colourInput("volcano_highlight_color", "Highlight Point color", "#FFCF56"),
+                                          
+                                          # tags$style(HTML(".js-irs-0 .irs-single, .js-irs-0 .irs-bar-edge, .js-irs-0 .irs-bar
+                                          #                 {background: #5ECCAB}")),
+                                          
+                                          sliderInput("padj_threshold", min = -40, max = 0, 
+                                                      label = "Select the magnitude of the p adjusted coloring:", 
+                                                      value = -25, step = 1),
+                            
+                                          actionButton('make_volcano_plot', label='Plot', 
+                                                       style='width:100%; background: #5ECCAB')
+                                        ),
+                                      
+                                      mainPanel(plotOutput(outputId = "volcano", height='600px'),
+                                      )
+                                  ))
+                        ))
                  )),
+        
+        
         tabPanel('CYO Adventure', 
                  'either GSEA or Correlation Network Analysis')
     )
@@ -612,7 +653,7 @@ server <- function(input, output, session) {
         prop_of_var <- signif(prop_of_var, digits=2) * 100
         
         # Color map for plot
-        color_map <- c('Huntington\'s Disease' = '#FFC107', 'Neurologically normal' = '#004D40')
+        color_map <- c('Huntington\'s Disease' = '#57B9FF', 'Neurologically normal' = '#004D40')
         
         # PC number and variance explained as a variable
         pc_x_num <- str_sub(pcx, -1)
@@ -658,7 +699,67 @@ server <- function(input, output, session) {
         })
     })
     
-
+    
+    #####################################################
+    #' 13.5.3 Differential Expression INPUT DESEQ RESULTS
+    #' Only need to turn results csv into table, 
+    #' since deseq results already available
+    
+    load_deseq_results <- reactive({
+        # Don't run until file has been uploaded
+        req(input$deseq_csv)
+        
+        deseq_results <- readr::read_tsv(input$deseq_csv$datapath, show_col_types = FALSE) %>%
+            dplyr::rename(Gene = 1)
+        
+        return (deseq_results)
+    })
+    
+    
+    ###########################################################
+    #' 13.5.3 Differential Expression OUTPUT 1 table of results
+    output$deseq_table <- renderDT(
+        load_deseq_results(), options = list(
+            pageLength = 50, # Default number of rows to show
+            lengthMenu = c(5, 10, 20, 50, 100),  # Options for number of rows to show
+            dom = 'ltpf') # What to show in the data table (look up docs)
+    )
+    
+    
+    ###############################################
+    #' 13.5.3 DE OUTPUT 2 Customizable Volcano Plot
+    
+    # Function to make a volcano plot with many customizations
+    volcano_plot <- function(dataf, x_name, y_name, slider, color1, color2) {
+        volcano <- dataf %>%
+            drop_na(padj) %>%
+            mutate(volc_plot_status = case_when(
+                padj <= 1*10^slider ~ 'True',
+                padj > 1*10^slider ~ 'False')) %>%
+            mutate(padj = -log10(padj)) %>%
+            
+            ggplot(aes(x=!!sym(x_name), y=!!sym(y_name), color=volc_plot_status)) +
+                geom_point() +
+                scale_colour_manual(values = c('True' = color2, 'False' = color1)) +
+                guides(color=guide_legend(title=paste(c("padj <= 1*10^", slider), collapse=''))) +
+                theme(legend.position="bottom", legend.box = "horizontal")
+        
+        return(volcano)
+    }
+    
+    
+    output$volcano <- renderPlot({
+        #makes this renderPlot depend on the button w/ ID 'make_plot'
+        input$make_volcano_plot      
+        
+        #dont super understand what isolate does
+        isolate({  
+            volcano_plot(load_deseq_results(), input$volcano_x, input$volcano_y, input$padj_threshold,
+                         input$volcano_base_color, input$volcano_highlight_color)
+        })
+    })
+    
+    
 }
 
 

@@ -334,3 +334,16 @@ make_pca_plot <- function(filtered_metadata) {
 make_pca_plot(md_filtered)
 #pca_plot <- make_pca_plot(md_filtered)
 
+
+#### 13.5.3 Differential Expression
+# Load in input
+load_deseq_results <- function(deseq_file) {
+    deseq_results <- readr::read_tsv(deseq_file, show_col_types = FALSE) %>%
+        dplyr::rename(Gene = 1)
+    
+    return (deseq_results)
+}
+
+deseq <- load_deseq_results('data/GSE64810_DESeq2.txt')
+
+
