@@ -6,6 +6,8 @@ library(GEOquery)
 library(tidyverse)
 library(gplots)
 library(DESeq2)
+library(fgsea)
+
 
 #### 13.5.1 Sample Information Exploration ####
 #' Load in data, data downloaded from NCBI 
@@ -346,4 +348,46 @@ load_deseq_results <- function(deseq_file) {
 
 deseq <- load_deseq_results('data/GSE64810_DESeq2.txt')
 
+
+#### 13.6.1 FGSEA
+
+# ranked_genes <- deseq$symbol
+# ranked_log2fc <- deseq$log2FoldChange
+# ranked_list <- stats::setNames(ranked_log2fc, ranked_genes)
+# hallmark_pathways_fgsea <- fgsea::gmtPathways('data/h.all.v2023.2.Hs.symbols.gmt')
+# fgsea_results <- fgsea(hallmark_pathways_fgsea, ranked_list, minSize = 15, maxSize = 500)
+# write_csv(fgsea_results, file='data/fgsea_results.csv')
+
+run_fgsea <- function(deseq_results, variable, geneset_file) {
+    ranked_genes <- deseq_results$symbol
+    ranked_variable <- deseq_results$variable
+    ranked_list <- stats::setNames(ranked_variable, ranked_genes)
+    hallmark_pathways_fgsea <- fgsea::gmtPathways(geneset_file)
+    fgsea_results <- fgsea(hallmark_pathways_fgsea, ranked_list, minSize = 15, maxSize = 500)
+    write_csv(fgsea_results, file='data/fgsea_results.csv')
+    
+    return (fgsea_results)
+}
+
+
+plot_fgsea_barplot <- function(fgsea_res, padj_threshold) {
+    fix_hallmark <- function(hallmark) {
+        fixed <- str_sub(hallmark, 10)
+        fixed <- str_replace_all(fixed, '_', ' ')
+        return (fixed)
+    }
+    
+    fgsea_barplot <- fgsea_res %>%
+        dplyr::filter(padj <= 1*10^(padj_threshold)) %>%
+        dplyr::mutate(pathway = fix_hallmark(pathway)) %>%
+        ggplot(aes(x=reorder(pathway, NES), y=NES)) + 
+            geom_bar(stat='identity', fill = '#004D40') + 
+            theme_classic() +
+            scale_x_discrete(labels=function(x){gsub("\\s", "\n", x)}) + 
+            theme(axis.text=element_text(size=12), axis.title.y = element_blank()) + 
+            coord_flip() 
+    
+    
+    return (fgsea_barplot)
+}
 

@@ -20,7 +20,6 @@ library(DESeq2)
 
 options(shiny.maxRequestSize=30*1024^2)
 
-
 #### UI / Front end ####
 ui <- fluidPage(
     titlePanel("BF591 Final Project"),
@@ -180,8 +179,24 @@ ui <- fluidPage(
                  )),
         
         
-        tabPanel('CYO Adventure', 
-                 'either GSEA or Correlation Network Analysis')
+        tabPanel('GSEA', 
+                 sidebarLayout(
+                    sidebarPanel('Please upload gmt file here and DESeq results in previous tab',
+                                  fileInput('gmt_file', paste0('Upload gmt file here')),
+                                  ),
+                    
+                    mainPanel(
+                        sidebarLayout(
+                            sidebarPanel(
+                                sliderInput("fgsea_padj_threshold", min = -30, max = 0, 
+                                            label = "Select a threshold for padj for the barplot", 
+                                            value = -15, step = 1)),
+    
+                            mainPanel(
+                                plotOutput(outputId = 'fgsea_barplot', height='600px')
+                            )
+                    ))
+                ))
     )
     
 )
@@ -758,6 +773,78 @@ server <- function(input, output, session) {
                          input$volcano_base_color, input$volcano_highlight_color)
         })
     })
+    
+    
+    ########################################################
+    #' 13.6.1 FGSEA INPUTS
+    #' Upload GMT file, choose appropriate ranking variable,
+    #' and run FGSEA
+    
+    # Function to run fgsea (requires DESeq and gmt file)
+    run_fgsea <- reactive({
+        # Don't run until files has been uploaded
+        req(input$deseq_csv)
+        req(input$gmt_file)
+        
+        # Load in DESeq results again
+        deseq_results <- load_deseq_results()
+        
+        # Make a ranked vector of genes ranked by their log 2 fold change values
+        ranked_genes <- deseq_results$symbol
+        ranked_variable <- deseq_results$log2FoldChange
+        ranked_list <- stats::setNames(ranked_variable, ranked_genes)
+       
+        # Run fgsea using uploaded gmt file 
+        hallmark_pathways_fgsea <- fgsea::gmtPathways(input$gmt_file$datapath)
+        fgsea_results <- fgsea(hallmark_pathways_fgsea, ranked_list, minSize = 15, maxSize = 500)
+        write_csv(fgsea_results, file='data/fgsea_results.csv')
+        
+        return (fgsea_results)
+    })
+    
+    # Function to make horizontal barplot of significant pathways after fgsea (filtered by padj values)
+    plot_fgsea_barplot <- function(fgsea_res, padj_threshold) {
+        
+        # Function to make Hallmark pathways more readable and shorter
+        fix_hallmark <- function(hallmark) {
+            fixed <- str_sub(hallmark, 10)
+            fixed <- str_replace_all(fixed, '_', ' ')
+            return (fixed)
+        }
+        
+        # Add a column to describe if pathway is upregulated or downregulated
+        fgsea_res <- fgsea_res %>%
+            mutate(NES_status = case_when(NES >= 0 ~ 'TRUE', 
+                                          NES < 0 ~ 'FALSE'))
+        
+        # Color map for different +/- regulation of pathway
+        color_map <- c('FALSE' = '#FFC107', 'TRUE' = '#004D40')
+        
+        # Make barplot after filtering for padj threshold
+        fgsea_barplot <- fgsea_res %>%
+            dplyr::filter(padj <= 1*10^(padj_threshold)) %>%
+            dplyr::mutate(pathway = fix_hallmark(pathway)) %>%
+            ggplot(aes(x = reorder(pathway, NES), y = NES, fill = NES_status)) + 
+                geom_bar(stat = 'identity') + 
+                theme_classic() +
+                ggtitle('Barplot of fgsea NES') +
+                #scale_x_discrete(labels = function(x){gsub("\\s", "\n", x)}) + # add new lines after each word to 
+                                                                                # deal with long labels
+                theme(axis.text = element_text(size = 12), axis.title.y = element_blank()) + 
+                guides(fill = 'none') +
+                scale_fill_manual(values = color_map) + 
+                coord_flip() 
+        
+        return (fgsea_barplot)
+    }
+    
+    # Render the horizontal barplot
+    output$fgsea_barplot <- renderPlot({
+
+        plot_fgsea_barplot(run_fgsea(), input$fgsea_padj_threshold)
+
+    })
+    
     
     
 }
