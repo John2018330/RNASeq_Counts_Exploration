@@ -94,6 +94,7 @@ ui <- fluidPage(
                                   'Tab with a table summarizing the effect of the filtering',
                                   DTOutput('filtered_norm_counts_table')),
                          
+                         ## Scatter plot 
                          tabPanel('Scatter Plots', 
                                   'Tab with diagnostic scatter plots, where genes passing filters are darker, 
                                   and genes filtered out are lighter',
@@ -103,10 +104,12 @@ ui <- fluidPage(
                                       plotOutput(outputId = 'counts_scatter_nonzeros', height = '500px')),
                                   )),
                          
+                         ## Heatmap
                          tabPanel('Heatmap', 
                                   h3('Heatmap of filtered counts log10-transformed'),
                                   plotOutput(outputId = 'counts_heatmap', height='600px')),
                          
+                         ## PCA
                          tabPanel('PCA', 
                                   sidebarLayout(
                                       sidebarPanel(
@@ -139,10 +142,12 @@ ui <- fluidPage(
                      ),
                      
                      mainPanel(tabsetPanel(
+                         ## Sortable table of DESeq results
                          tabPanel('Table', 
                                   'Tab with sortable table displaying differential expression results',
                                   DTOutput('deseq_table')),
                          
+                         ## Customizable volcano plot of DE genes
                          tabPanel('Volcano Plot', 
                                   sidebarLayout(
                                       sidebarPanel(
@@ -191,6 +196,7 @@ ui <- fluidPage(
                     ### OUTPUTS: NES Barplot, Data table, and scatterplot
                     mainPanel(tabsetPanel(
                         
+                        ## Barplot of significant NES pathways
                         tabPanel('NES Barplot',
                                  sidebarLayout(
                                      sidebarPanel(
@@ -203,6 +209,7 @@ ui <- fluidPage(
                                          plotOutput(outputId = 'fgsea_barplot', height='600px'))
                         )),
                         
+                        ## Table of FGSEA results
                         tabPanel('FGSEA results',
                                  sidebarLayout(
                                      sidebarPanel(
@@ -223,6 +230,7 @@ ui <- fluidPage(
                         
                         )),
                         
+                        ## Scatter plot of pathways and significance 
                         tabPanel('Pathway Scatter Plot',
                                  sidebarLayout(
                                      sidebarPanel(
@@ -787,15 +795,22 @@ server <- function(input, output, session) {
     volcano_plot <- function(dataf, x_name, y_name, slider, color1, color2) {
         volcano <- dataf %>%
             drop_na(padj) %>%
+            
+            # Column to color points by padj threshold
             mutate(volc_plot_status = case_when(
                 padj <= 1*10^slider ~ 'True',
                 padj > 1*10^slider ~ 'False')) %>%
+            
+            # Log transform for volcano effect
             mutate(padj = -log10(padj)) %>%
             
+            # Plot
             ggplot(aes(x=!!sym(x_name), y=!!sym(y_name), color=volc_plot_status)) +
                 geom_point() +
                 theme_classic() +
                 scale_colour_manual(values = c('True' = color2, 'False' = color1)) +
+                
+                # This is hard coded for padj unforunately
                 guides(color=guide_legend(title=paste(c("padj <= 1*10^", slider), collapse=''))) +
                 theme(legend.position="bottom", legend.box = "horizontal") 
                 
@@ -804,10 +819,10 @@ server <- function(input, output, session) {
     
     
     output$volcano <- renderPlot({
-        #makes this renderPlot depend on the button w/ ID 'make_plot'
+        # Makes this renderPlot depend on the button w/ ID 'make_plot'
         input$make_volcano_plot      
         
-        #dont super understand what isolate does
+        # Dont super understand what isolate does
         isolate({  
             volcano_plot(load_deseq_results(), input$volcano_x, input$volcano_y, input$padj_threshold,
                          input$volcano_base_color, input$volcano_highlight_color)
