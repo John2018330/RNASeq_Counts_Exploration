@@ -369,6 +369,8 @@ run_fgsea <- function(deseq_results, variable, geneset_file) {
     return (fgsea_results)
 }
 
+run_fgsea(deseq, log2FoldChange, 'data/h.all.v2023.2.Hs.symbols.gmt')
+
 
 plot_fgsea_barplot <- function(fgsea_res, padj_threshold) {
     fix_hallmark <- function(hallmark) {
@@ -389,5 +391,36 @@ plot_fgsea_barplot <- function(fgsea_res, padj_threshold) {
     
     
     return (fgsea_barplot)
+
 }
 
+
+fgsea_scatter <- function(fgsea_res, padj_threshold) {
+    filtered_fgsea <- fgsea_res %>%
+        dplyr::mutate(padj_status = case_when(padj <= 1*10^(padj_threshold) ~ 'TRUE', 
+                                              .default = 'FALSE')) %>%
+        dplyr::mutate(transformed_padj = -log10(padj))
+    
+    # Color vector for plot
+    color_map <- c('TRUE' = '#FFC107', 'FALSE' = '#004D40')
+    
+    scatter <- filtered_fgsea %>%
+        ggplot(aes(x=NES, y=transformed_padj, color=padj_status)) + 
+            geom_point() + 
+            theme_classic() +
+            ggtitle('NES vs. -log10 Adjusted P Value') +
+            ylab('-log10(padj)') + 
+        
+            theme(plot.title = element_text(size=20, face='bold'), 
+                  axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+                  legend.title = element_text(size=14), legend.text = element_text(size=14),
+                  legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                  legend.background = element_rect(fill=alpha('grey', 0.5)),
+                  legend.position = "bottom", legend.box = "horizontal") +
+            guides(color = guide_legend(title = paste('padj <= 1*10^', padj_threshold),
+                                        title.position = 'top', title.hjust = 0.5)) +
+            scale_color_manual(values = color_map)
+    
+    return (scatter)
+}
+fgsea_scatter(fgsea_results, -15)

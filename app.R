@@ -17,6 +17,7 @@ library(GEOquery)
 library(DT)
 library(gplots)
 library(DESeq2)
+library(fgsea)
 
 options(shiny.maxRequestSize=30*1024^2)
 
@@ -178,27 +179,65 @@ ui <- fluidPage(
                         ))
                  )),
         
-        
-        tabPanel('GSEA', 
-                 sidebarLayout(
-                    sidebarPanel('Please upload gmt file here and DESeq results in previous tab',
-                                  fileInput('gmt_file', paste0('Upload gmt file here')),
-                                  ),
+        #### 13.6.1 GSEA using fgsea
+        tabPanel('GSEA',
+                sidebarLayout(
                     
-                    mainPanel(
-                        sidebarLayout(
-                            sidebarPanel(
-                                sliderInput("fgsea_padj_threshold", min = -30, max = 0, 
-                                            label = "Select a threshold for padj for the barplot", 
-                                            value = -15, step = 1)),
-    
-                            mainPanel(
-                                plotOutput(outputId = 'fgsea_barplot', height='600px')
-                            )
+                    ### INPUT: Upload gmt file (and deseq file in previous tab)
+                    sidebarPanel('Please upload gmt file here and DESeq results in previous tab',
+                        fileInput('gmt_file', paste0('Upload gmt file here')),
+                    ),
+                    
+                    ### OUTPUTS: NES Barplot, Data table, and scatterplot
+                    mainPanel(tabsetPanel(
+                        
+                        tabPanel('NES Barplot',
+                                 sidebarLayout(
+                                     sidebarPanel(
+                                         sliderInput("fgsea_padj_threshold", min = -30, max = 0, 
+                                                     label = "Select a threshold for padj for the barplot", 
+                                                     value = -15, step = 1)
+                                     ),
+                                     
+                                     mainPanel(
+                                         plotOutput(outputId = 'fgsea_barplot', height='600px'))
+                        )),
+                        
+                        tabPanel('FGSEA results',
+                                 sidebarLayout(
+                                     sidebarPanel(
+                                         sliderInput("fgsea_padj_threshold_2", min = -30, max = 0, 
+                                                     label = "Select a threshold for padj for the data table", 
+                                                     value = -15, step = 1),
+                                         
+                                         radioButtons("nes_pathway", "Select positive, negative, or all NES pathways", 
+                                                      c('Positive', 'Negative', 'Both'),
+                                                      selected='Both'),
+                                         
+                                         downloadButton('download_fgsea', 'Download the data table to the right')
+                                     ),
+                                     
+                                     mainPanel(
+                                         DTOutput('fgsea_table')
+                                     )
+                        
+                        )),
+                        
+                        tabPanel('Pathway Scatter Plot',
+                                 sidebarLayout(
+                                     sidebarPanel(
+                                         sliderInput("fgsea_padj_threshold_3", min = -30, max = 0, 
+                                                     label = "Select a threshold for padj for the scatter plot", 
+                                                     value = -15, step = 1)
+                                     ),
+                                     
+                                     mainPanel(
+                                         plotOutput(outputId = 'fgsea_scatter', height='600px')
+                                     )
+                        ))
                     ))
                 ))
     )
-    
 )
 
 #### Server side / Back end ####
@@ -668,7 +707,7 @@ server <- function(input, output, session) {
         prop_of_var <- signif(prop_of_var, digits=2) * 100
         
         # Color map for plot
-        color_map <- c('Huntington\'s Disease' = '#57B9FF', 'Neurologically normal' = '#004D40')
+        color_map <- c('Huntington\'s Disease' = '#FFC107', 'Neurologically normal' = '#004D40')
         
         # PC number and variance explained as a variable
         pc_x_num <- str_sub(pcx, -1)
@@ -755,10 +794,11 @@ server <- function(input, output, session) {
             
             ggplot(aes(x=!!sym(x_name), y=!!sym(y_name), color=volc_plot_status)) +
                 geom_point() +
+                theme_classic() +
                 scale_colour_manual(values = c('True' = color2, 'False' = color1)) +
                 guides(color=guide_legend(title=paste(c("padj <= 1*10^", slider), collapse=''))) +
-                theme(legend.position="bottom", legend.box = "horizontal")
-        
+                theme(legend.position="bottom", legend.box = "horizontal") 
+                
         return(volcano)
     }
     
@@ -796,21 +836,24 @@ server <- function(input, output, session) {
        
         # Run fgsea using uploaded gmt file 
         hallmark_pathways_fgsea <- fgsea::gmtPathways(input$gmt_file$datapath)
-        fgsea_results <- fgsea(hallmark_pathways_fgsea, ranked_list, minSize = 15, maxSize = 500)
+        fgsea_results <- fgsea(hallmark_pathways_fgsea, ranked_list, minSize = 15, maxSize = 500) 
+        fgsea_results$leadingEdge <- lapply(fgsea_results$leadingEdge, paste0, collapse=',')
+        fgsea_results$leadingEdge <- as.character(fgsea_results$leadingEdge)
+        
         write_csv(fgsea_results, file='data/fgsea_results.csv')
         
         return (fgsea_results)
     })
     
+    # Function to make Hallmark pathways more readable and shorter
+    fix_hallmark <- function(hallmark) {
+        fixed <- str_sub(hallmark, 10)
+        fixed <- str_replace_all(fixed, '_', ' ')
+        return (fixed)
+    }
+    
     # Function to make horizontal barplot of significant pathways after fgsea (filtered by padj values)
     plot_fgsea_barplot <- function(fgsea_res, padj_threshold) {
-        
-        # Function to make Hallmark pathways more readable and shorter
-        fix_hallmark <- function(hallmark) {
-            fixed <- str_sub(hallmark, 10)
-            fixed <- str_replace_all(fixed, '_', ' ')
-            return (fixed)
-        }
         
         # Add a column to describe if pathway is upregulated or downregulated
         fgsea_res <- fgsea_res %>%
@@ -846,7 +889,94 @@ server <- function(input, output, session) {
     })
     
     
+    ####################################################
+    #' 13.6.1 FGSEA OUTPUT 2 DATA TABLE OF FGSEA RESULTS 
+    #' WITH FILTERS & DOWNLOAD
     
+    # Function to generate filtered fgsea results tibble based on inputs
+    filter_fgsea_results <- function(fgsea_res, padj_threshold, sign) {
+        padj_filtered <- fgsea_res %>%
+            dplyr::filter(padj <= 1*10^(padj_threshold)) %>%
+            dplyr::mutate(pathway = fix_hallmark(pathway))
+        
+        if (sign == 'Positive') {
+            sign_filtered <- padj_filtered %>%
+                dplyr::filter(NES >= 0)
+            
+        } else if (sign == 'Negative') {
+            sign_filtered <- padj_filtered %>%
+                dplyr::filter(NES <= 0)
+            
+        } else if (sign == 'Both') {
+            return (padj_filtered)
+        }
+        
+        return (sign_filtered)
+    }
+
+    
+    # Render filtered fgsea results tibble
+    output$fgsea_table <- renderDT(
+        filter_fgsea_results(run_fgsea(), input$fgsea_padj_threshold_2, input$nes_pathway),
+        options = list(
+            pageLength = 10, # Default number of rows to show
+            lengthMenu = c(5, 10, 20, 50)  # Options for number of rows to show
+        )
+    )
+    
+    # Download button for fgsea_results
+    
+    output$download_fgsea <- downloadHandler(
+        filename = function() {'filtered_fgsea_results.csv'},
+        content = function(file) {
+            write.csv(
+                filter_fgsea_results(run_fgsea(), input$fgsea_padj_threshold_2, input$nes_pathway), 
+                file)
+        }
+    )
+    
+    
+    ########
+    #' 13.6.1 OUTPUT 3 SCATTER PLOT
+    
+    # Make plot
+    fgsea_scatter <- function(fgsea_res, padj_threshold) {
+        filtered_fgsea <- fgsea_res %>%
+            dplyr::mutate(padj_status = case_when(padj <= 1*10^(padj_threshold) ~ 'TRUE', 
+                                                  .default = 'FALSE')) %>%
+            dplyr::mutate(transformed_padj = -log10(padj))
+        
+        # Color vector for plot
+        color_map <- c('TRUE' = '#FFC107', 'FALSE' = '#004D40')
+        
+        scatter <- filtered_fgsea %>%
+            ggplot(aes(x=NES, y=transformed_padj, color=padj_status)) + 
+            geom_point(size=3) + 
+            theme_classic() +
+            ggtitle('NES vs. -log10 Adjusted P Value') +
+            ylab('-log10(padj)') + 
+            
+            theme(plot.title = element_text(size=20, face='bold'), 
+                  axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
+                  legend.title = element_text(size=14), legend.text = element_text(size=14),
+                  legend.box.background = element_rect(color = 'black', linewidth = 0.8),
+                  legend.background = element_rect(fill=alpha('grey', 0.5)),
+                  legend.position = "bottom", legend.box = "horizontal") +
+            guides(color = guide_legend(title = paste('padj <= 1*10^', padj_threshold),
+                                        title.position = 'top', title.hjust = 0.5)) +
+            scale_color_manual(values = color_map)
+        
+        return (scatter)
+    }
+
+    # Render plot
+    
+    output$fgsea_scatter <- renderPlot(
+        
+        fgsea_scatter(run_fgsea(), input$fgsea_padj_threshold_3)
+        
+    )
+        
 }
 
 
