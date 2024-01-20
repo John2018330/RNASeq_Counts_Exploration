@@ -544,9 +544,9 @@ server <- function(input, output, session) {
             ggplot(aes(x=rank_median, y=var, color=variance_filter_status)) +
             geom_point() + 
             theme_classic() +     
-            xlab('Median (ranked)') +
+            xlab('Median count (ranked)') +
             ylab('Variance on a Log10 Scale') + 
-            ggtitle('Ranked median vs Variance on a Log10 Scale') + 
+            ggtitle('Ranked median count vs Variance on a Log10 Scale') + 
             
             # Change axis tick labels and scales
             scale_x_continuous(labels = scales::comma) +
@@ -602,7 +602,7 @@ server <- function(input, output, session) {
             theme_classic() +     
             xlab('Median Count (ranked)') +
             ylab('Zero Count') +
-            ggtitle('Ranked median vs. # of zero counts for a gene') +
+            ggtitle('Ranked median count vs. # of zero counts for a gene') +
             
             # Change axis tick labels and scales
             scale_x_continuous(labels = scales::comma) +
@@ -985,7 +985,6 @@ server <- function(input, output, session) {
     }
 
     # Render plot
-    
     output$fgsea_scatter <- renderPlot(
         
         fgsea_scatter(run_fgsea(), input$fgsea_padj_threshold_3)
