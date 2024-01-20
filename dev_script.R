@@ -394,7 +394,7 @@ plot_fgsea_barplot <- function(fgsea_res, padj_threshold) {
 
 }
 
-
+# Figure out how to fix long titles
 fgsea_scatter <- function(fgsea_res, padj_threshold) {
     filtered_fgsea <- fgsea_res %>%
         dplyr::mutate(padj_status = case_when(padj <= 1*10^(padj_threshold) ~ 'TRUE', 

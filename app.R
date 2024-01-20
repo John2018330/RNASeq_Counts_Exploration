@@ -910,10 +910,13 @@ server <- function(input, output, session) {
     
     # Function to generate filtered fgsea results tibble based on inputs
     filter_fgsea_results <- function(fgsea_res, padj_threshold, sign) {
+        
+        # Generate tibble with filtered padj only, fix long text of pathways
         padj_filtered <- fgsea_res %>%
             dplyr::filter(padj <= 1*10^(padj_threshold)) %>%
             dplyr::mutate(pathway = fix_hallmark(pathway))
         
+        # If/else to select for positive vs negative (or both) enriched pathways
         if (sign == 'Positive') {
             sign_filtered <- padj_filtered %>%
                 dplyr::filter(NES >= 0)
@@ -956,6 +959,8 @@ server <- function(input, output, session) {
     
     # Make plot
     fgsea_scatter <- function(fgsea_res, padj_threshold) {
+        
+        # Add column to see if padj values meet threshold and log transform
         filtered_fgsea <- fgsea_res %>%
             dplyr::mutate(padj_status = case_when(padj <= 1*10^(padj_threshold) ~ 'TRUE', 
                                                   .default = 'FALSE')) %>%
@@ -964,6 +969,7 @@ server <- function(input, output, session) {
         # Color vector for plot
         color_map <- c('TRUE' = '#FFC107', 'FALSE' = '#004D40')
         
+        # Scatter plot
         scatter <- filtered_fgsea %>%
             ggplot(aes(x=NES, y=transformed_padj, color=padj_status)) + 
             geom_point(size=3) + 
@@ -971,14 +977,19 @@ server <- function(input, output, session) {
             ggtitle('NES vs. -log10 Adjusted P Value') +
             ylab('-log10(padj)') + 
             
+            # Legend/text elements
             theme(plot.title = element_text(size=20, face='bold'), 
                   axis.title.x = element_text(size=14), axis.title.y = element_text(size=14),
                   legend.title = element_text(size=14), legend.text = element_text(size=14),
                   legend.box.background = element_rect(color = 'black', linewidth = 0.8),
                   legend.background = element_rect(fill=alpha('grey', 0.5)),
                   legend.position = "bottom", legend.box = "horizontal") +
+            
+            # Edit legend
             guides(color = guide_legend(title = paste('padj <= 1*10^', padj_threshold),
                                         title.position = 'top', title.hjust = 0.5)) +
+            
+            # Set colors
             scale_color_manual(values = color_map)
         
         return (scatter)
@@ -987,13 +998,12 @@ server <- function(input, output, session) {
     # Render plot
     output$fgsea_scatter <- renderPlot(
         
+        # Generate scatter plot 
         fgsea_scatter(run_fgsea(), input$fgsea_padj_threshold_3)
         
     )
         
 }
-
-
 
 #Run the application
 shinyApp(ui = ui, server = server)
