@@ -19,18 +19,19 @@ library(gplots)
 library(DESeq2)
 library(fgsea)
 
+# File upload limit
 options(shiny.maxRequestSize=30*1024^2)
 
-#### UI / Front end ####
+#### UI  ####
 ui <- fluidPage(
     titlePanel("BF591 Final Project"),
-    h3('A Rshiny website to explore RNA-seq results'),
+    h3('A Rshiny website to explore RNA-seq counts'),
     p(strong("Made by Johnathan Zhang")),
     
     tabsetPanel(
         
         #### 13.5.1 Sample Information Exploration ####
-        tabPanel('Samples', 
+        tabPanel('Sample Metadata', 
                  sidebarLayout(
                      ### Upload metadata file
                      sidebarPanel(
@@ -106,7 +107,7 @@ ui <- fluidPage(
                          
                          ## Heatmap
                          tabPanel('Heatmap', 
-                                  h3('Heatmap of filtered counts log10-transformed'),
+                                  h3('Heatmap of filtered counts'),
                                   plotOutput(outputId = 'counts_heatmap', height='600px')),
                          
                          ## PCA
