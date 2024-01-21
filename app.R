@@ -22,7 +22,7 @@ library(fgsea)
 # File upload limit
 options(shiny.maxRequestSize=30*1024^2)
 
-#### UI  ####
+#### UI ####
 ui <- fluidPage(
     titlePanel("BF591 Final Project"),
     h3('A Rshiny website to explore RNA-seq counts'),
